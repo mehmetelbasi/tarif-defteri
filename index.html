@@ -645,8 +645,8 @@ const PAGE_SIZE = 20;
 const SESSION_KEY = 'tarif_session';
 
 let recipes=[], members=[], currentCat='', currentTag='', currentSort='new', currentPage=1;
-let editingId=null, detailId=null, currentUser=null, formTags=[], importList2=[], searchTimer=null;
 let commentCounts = {};
+let editingId=null, detailId=null, currentUser=null, formTags=[], importList2=[], searchTimer=null;
 
 // ── SON EKLENENLER ──
 const LAST_SEEN_KEY = 'tarif_last_seen';
@@ -1618,31 +1618,17 @@ ${r.note?`<div class="section-title">İpucu</div><div class="detail-note">💡 $
         <button onclick="addComment()" style="background:var(--accent);color:#fff;border:none;border-radius:12px;padding:0 16px;font-weight:700;cursor:pointer;">Gönder</button>
       </div>
     </div><div style="height:20px;"></div>`;
-document.getElementById('detailOverlay').classList.add('open');
+  document.getElementById('detailOverlay').classList.add('open');
+  async function loadCommentCounts() {
+  const { data, error } = await sb.from('comments').select('recipe_id');
+  if (error) return;
+  const counts = {};
+  (data || []).forEach(c => { counts[c.recipe_id] = (counts[c.recipe_id] || 0) + 1; });
+  commentCounts = counts;
+}
   loadComments(id);
-}loadComments(id);
 }
-
 function closeDetail(){document.getElementById('detailOverlay').classList.remove('open');}
-
-async function loadCommentCounts() {
-  const { data, error } = await sb.from('comments').select('recipe_id');
-  if (error) return;
-  const counts = {};
-  (data || []).forEach(c => { counts[c.recipe_id] = (counts[c.recipe_id] || 0) + 1; });
-  commentCounts = counts;
-}
-
-async function loadComments(recipeId) {
-
-async function loadCommentCounts() {
-  const { data, error } = await sb.from('comments').select('recipe_id');
-  if (error) return;
-  const counts = {};
-  (data || []).forEach(c => { counts[c.recipe_id] = (counts[c.recipe_id] || 0) + 1; });
-  commentCounts = counts;
-}
-
 async function loadComments(recipeId) {
   const list = document.getElementById('commentsList');
   list.innerHTML = '<div style="font-size:13px;color:var(--text3);padding:8px 0;">⏳ Yükleniyor...</div>';
