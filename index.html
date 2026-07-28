@@ -644,6 +644,7 @@ const PAGE_SIZE = 20;
 const SESSION_KEY = 'tarif_session';
 
 let recipes=[], members=[], currentCat='', currentTag='', currentSort='new', currentPage=1;
+let commentCounts = {}; //yorum anasayfada 1. Global değişken ekleyin
 let editingId=null, detailId=null, currentUser=null, formTags=[], importList2=[], searchTimer=null;
 
 // ── SON EKLENENLER ──
@@ -1259,10 +1260,11 @@ async function fetchRecipes() {
     toast('⚠️ Veriler yüklenemedi');
     return;
   }
-  recipes = data || [];
-  localStorage.setItem('tarif_cache', JSON.stringify(recipes));
-  if (!localStorage.getItem(LAST_SEEN_KEY)) markAsSeen();
-  updateCounts(); updateTagsBar(); renderList();
+recipes = data || [];
+localStorage.setItem('tarif_cache', JSON.stringify(recipes));
+if (!localStorage.getItem(LAST_SEEN_KEY)) markAsSeen();
+await loadCommentCounts();
+updateCounts(); updateTagsBar(); renderList();
   checkNewRecipes();
 }
 
@@ -1356,6 +1358,7 @@ function cardHTML(r,_q=''){
         ${r.time_minutes?`<div class="meta-item"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline stroke-linecap="round" points="12 6 12 12 16 14"/></svg>${r.time_minutes} dk</div>`:''}
         ${r.servings?`<div class="meta-item"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>${r.servings} kişi</div>`:''}
         ${r.ingredients&&r.ingredients.length?`<div class="meta-item">${r.ingredients.length} malzeme</div>`:''}
+		${commentCounts[r.id]?`<div class="meta-item">💬 ${commentCounts[r.id]}</div>`:''}
         ${r.added_by?`<div class="added-by">👤 ${esc(r.added_by)}</div>`:''}
       </div>
       ${r.steps?`<div class="recipe-card-desc">${highlight(r.steps.split('\n').filter(Boolean)[0]||'',_q)}</div>`:''}
@@ -1606,12 +1609,64 @@ function openDetail(id){
     <div class="detail-body">
       ${r.ingredients&&r.ingredients.length?`<div class="section-title">Malzemeler</div><div>${r.ingredients.map(i=>`<span class="ing-chip">✓ ${esc(i)}</span>`).join('')}</div>`:''}
       ${steps.length?`<div class="section-title">Yapılışı</div><ol class="steps-list">${steps.map((s,i)=>`<li class="step-item"><div class="step-num">${i+1}</div><div class="step-text">${esc(s.replace(/^\d+[\.\)]\s*/,''))}</div></li>`).join('')}</ol>`:''}
-      ${r.note?`<div class="section-title">İpucu</div><div class="detail-note">💡 ${esc(r.note)}</div>`:''}
+	  ${r.note?`<div class="section-title">İpucu</div><div class="detail-note">💡 ${esc(r.note)}</div>`:''}
+      <div class="section-title">💬 Yorumlar</div>
+      <div id="commentsList"></div>
+      <div style="display:flex;gap:8px;margin-top:10px;">
+        <input class="form-input" id="commentInput" placeholder="Yorum yaz..." onkeydown="if(event.key==='Enter'){addComment()}" style="flex:1;" />
+        <button onclick="addComment()" style="background:var(--accent);color:#fff;border:none;border-radius:12px;padding:0 16px;font-weight:700;cursor:pointer;">Gönder</button>
+      </div>
     </div><div style="height:20px;"></div>`;
   document.getElementById('detailOverlay').classList.add('open');
+  
+  async function loadCommentCounts() {
+  const { data, error } = await sb.from('comments').select('recipe_id');
+  if (error) return;
+  const counts = {};
+  (data || []).forEach(c => { counts[c.recipe_id] = (counts[c.recipe_id] || 0) + 1; });
+  commentCounts = counts;
+}
+  loadComments(id);
 }
 
 function closeDetail(){document.getElementById('detailOverlay').classList.remove('open');}
+async function loadComments(recipeId) {
+  const list = document.getElementById('commentsList');
+  list.innerHTML = '<div style="font-size:13px;color:var(--text3);padding:8px 0;">⏳ Yükleniyor...</div>';
+  const { data, error } = await sb.from('comments').select('*').eq('recipe_id', recipeId).order('created_at', { ascending: true });
+  if (error) { list.innerHTML = '<div style="font-size:13px;color:var(--text3);">Yorumlar yüklenemedi.</div>'; return; }
+  if (!data.length) { list.innerHTML = '<div style="font-size:13px;color:var(--text3);padding:8px 0;">Henüz yorum yok. İlk yorumu sen yaz!</div>'; return; }
+  list.innerHTML = data.map(c => `
+    <div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);">
+      <div style="width:30px;height:30px;border-radius:50%;background:var(--tag-bg);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;">${esc(c.member_name[0].toUpperCase())}</div>
+      <div style="flex:1;">
+        <div style="font-size:13px;font-weight:700;color:var(--text);">${esc(c.member_name)} <span style="font-weight:400;color:var(--text3);font-size:11px;">${new Date(c.created_at).toLocaleString('tr-TR')}</span></div>
+        <div style="font-size:13px;color:var(--text2);line-height:1.5;margin-top:2px;">${esc(c.text)}</div>
+      </div>
+      ${(currentUser.isAdmin || currentUser.name === c.member_name) ? `<button onclick="deleteComment('${c.id}')" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:14px;padding:2px;">🗑</button>` : ''}
+    </div>`).join('');
+}
+
+async function addComment() {
+  const input = document.getElementById('commentInput');
+  const text = input.value.trim();
+  if (!text) return;
+  const { error } = await sb.from('comments').insert({ recipe_id: detailId, member_name: currentUser.name, text });
+  if (error) { toast('⚠️ Yorum eklenemedi'); return; }
+  input.value = '';
+  await loadComments(detailId);
+  commentCounts[detailId] = (commentCounts[detailId] || 0) + 1;
+renderList();
+}
+
+async function deleteComment(id) {
+  if (!confirm('Yorumu silmek istediğinize emin misiniz?')) return;
+  const { error } = await sb.from('comments').delete().eq('id', id);
+  if (error) { toast('⚠️ Silinemedi'); return; }
+  await loadComments(detailId);
+  commentCounts[detailId] = Math.max(0, (commentCounts[detailId] || 1) - 1);
+renderList();
+}
 function handleDetailOverlay(e){if(e.target===document.getElementById('detailOverlay'))closeDetail();}
 function editFromDetail(){closeDetail();setTimeout(()=>openEditModal(detailId),200);}
 
