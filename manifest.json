@@ -1,0 +1,37 @@
+{
+  "name": "Aile Tarif Defteri",
+  "short_name": "Tarifler",
+  "description": "Aile tarif defteri",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#E85D26",
+  "theme_color": "#E85D26",
+  "orientation": "portrait",
+  "lang": "tr",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
