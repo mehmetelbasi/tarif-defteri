@@ -556,7 +556,14 @@
 
 <script>
 const { createClient } = supabase;
-const sb = createClient('https://zgxucheohvezwtfzeaua.supabase.co','sb_publishable_AkdkF3EJ2mlguvi3UU6fjw_xAz0nINq');
+const SB_URL = 'https://zgxucheohvezwtfzeaua.supabase.co';
+const SB_KEY = 'sb_publishable_AkdkF3EJ2mlguvi3UU6fjw_xAz0nINq';
+const sb = createClient(SB_URL, SB_KEY);
+
+// Üye adından, Supabase Auth için sahte (gerçek e-posta olmayan) bir kimlik üretir
+function memberEmail(name) {
+  return normalize(name).replace(/\s+/g,'.') + '@aile.local';
+}
 
 const catEmoji = {
   'Sabah Kahvaltısı':'🍳','Çorba':'🍜','Salata':'🥗','Zeytinyağlılar':'🫒',
@@ -673,13 +680,11 @@ async function init() {
   const sharedId = urlParams.get('tarif');
 
   try {
-    const raw = localStorage.getItem(SESSION_KEY);
-    if (raw) {
-      const session = JSON.parse(raw);
-      if (session && session.name && session.exp > Date.now()) {
-        currentUser = session;
-        currentUser.exp = Date.now() + 24*60*60*1000;
-        localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
+    const { data: { session } } = await sb.auth.getSession();
+    if (session) {
+      const { data: profile } = await sb.from('profiles').select('id,name,is_admin').eq('id', session.user.id).single();
+      if (profile) {
+        currentUser = { id: profile.id, name: profile.name, isAdmin: profile.is_admin };
         document.getElementById('loadingScreen').style.display = 'none';
         showApp();
         try {
@@ -695,6 +700,9 @@ async function init() {
           }, 500);
         }
         return;
+      } else {
+        // Profil silinmiş/bulunamıyor — hesabı sonlandır
+        await sb.auth.signOut();
       }
     }
   } catch(e) {}
@@ -786,7 +794,7 @@ async function loadSharedRecipe(id) {
 }
 
 async function loadMembers() {
-  const { data, error } = await sb.from('members').select('id,name,is_admin').order('is_admin', { ascending: false }).order('name');
+  const { data, error } = await sb.from('profiles').select('id,name,is_admin').order('is_admin', { ascending: false }).order('name');
   if (error) { members = []; return; }
   members = data || [];
   renderMemberList();
@@ -828,20 +836,17 @@ async function doLogin() {
   const btn = document.getElementById('loginBtn');
   btn.disabled = true; btn.textContent = '⏳ Kontrol ediliyor...';
 
-  const hashedPass = await sha256(pass);
-
-  // Şifre kontrolünü veritabanı içinde yapan güvenli fonksiyonu çağır
-  const { data, error } = await sb.rpc('verify_member_login', { p_member_id: selectedMemberId, p_password_hash: hashedPass });
-  const result = data && data[0];
+  const email = memberEmail(selectedMemberName);
+  const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
 
   btn.disabled = false; btn.textContent = 'Giriş Yap →';
 
-  if (error) { showLoginError('Bir hata oluştu, tekrar deneyin.'); return; }
-  if (!result) { showLoginError('❌ Şifre hatalı, tekrar deneyin.'); document.getElementById('passInput').value=''; document.getElementById('passInput').focus(); return; }
+  if (error || !data.user) { showLoginError('❌ Şifre hatalı, tekrar deneyin.'); document.getElementById('passInput').value=''; document.getElementById('passInput').focus(); return; }
 
-  // Giriş başarılı — session kaydet (8 saatlik)
-  currentUser = { id: result.id, name: result.name, isAdmin: result.is_admin, exp: Date.now() + 24*60*60*1000 };
-  localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
+  const { data: profile } = await sb.from('profiles').select('id,name,is_admin').eq('id', data.user.id).single();
+  if (!profile) { showLoginError('⚠️ Bu hesap artık aktif değil.'); await sb.auth.signOut(); return; }
+
+  currentUser = { id: profile.id, name: profile.name, isAdmin: profile.is_admin };
 
   document.getElementById('loginScreen').style.display = 'none';
   showApp();
@@ -875,8 +880,8 @@ function showApp() {
   if (impBtn) impBtn.style.display = currentUser.isAdmin ? 'flex' : 'none';
 }
 
-function logout() {
-  localStorage.removeItem(SESSION_KEY);
+async function logout() {
+  await sb.auth.signOut();
   currentUser = null; recipes = [];
   selectedMemberId = null; selectedMemberName = '';
   document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('open'));
@@ -1109,7 +1114,7 @@ async function permanentDelete(id) {
 }
 
 async function renderAdminMembers() {
-  const { data } = await sb.from('members').select('id,name,is_admin').order('is_admin',{ascending:false}).order('name');
+  const { data } = await sb.from('profiles').select('*').order('is_admin',{ascending:false}).order('name');
   const list = document.getElementById('adminMemberList');
   if (!data||!data.length) { list.innerHTML='<p style="color:var(--text3);font-size:13px;">Henüz üye yok.</p>'; return; }
   list.innerHTML = data.map(m=>`
@@ -1127,8 +1132,15 @@ async function addMember() {
   const name = document.getElementById('newMemberName').value.trim();
   const pass = document.getElementById('newMemberPass').value.trim();
   if (!name||!pass) { toast('⚠️ Ad ve şifre gereklidir'); return; }
-  const hashedPass = await sha256(pass);
-  const { error } = await sb.from('members').insert({ name, password: hashedPass, is_admin: false });
+  if (pass.length < 6) { toast('⚠️ Şifre en az 6 karakter olmalıdır'); return; }
+
+  // Admin'in kendi oturumunu bozmadan yeni kullanıcı oluşturmak için geçici, oturum saklamayan bir istemci kullanıyoruz
+  const tempClient = createClient(SB_URL, SB_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+  const email = memberEmail(name);
+  const { data: signUpData, error: signUpErr } = await tempClient.auth.signUp({ email, password: pass });
+  if (signUpErr || !signUpData.user) { toast('⚠️ '+(signUpErr?.message||'Üye oluşturulamadı')); return; }
+
+  const { error } = await sb.from('profiles').insert({ id: signUpData.user.id, name, is_admin: false });
   if (error) { toast('⚠️ '+error.message); return; }
   document.getElementById('newMemberName').value='';
   document.getElementById('newMemberPass').value='';
@@ -1138,8 +1150,8 @@ async function addMember() {
 }
 
 async function deleteMember(id, name) {
-  if (!confirm(name+' üyelikten çıkarılsın mı?')) return;
-  const { error } = await sb.from('members').delete().eq('id', id);
+  if (!confirm(name+' üyelikten çıkarılsın mı? (Hesabı devre dışı bırakılır, tekrar giriş yapamaz)')) return;
+  const { error } = await sb.from('profiles').delete().eq('id', id);
   if (error) { toast('⚠️ Silinemedi'); return; }
   await renderAdminMembers();
   await loadMembers();
@@ -1160,7 +1172,7 @@ async function fetchRecipes() {
   let query = sb.from('recipes').select('*').is('deleted_at', null);
 
   if (!currentUser.isAdmin) {
-    query = query.or(`is_private.is.false,is_private.is.null,added_by.eq.${currentUser.name}`);
+    query = query.or(`is_private.is.false,is_private.is.null,added_by_id.eq.${currentUser.id}`);
   }
 
   const { data, error } = await query.order('created_at', { ascending: false });
@@ -1209,7 +1221,7 @@ function getFiltered(){
   let items=recipes.filter(r=>{
     if(r.is_private){
       if(!currentUser)return false;
-      if(!currentUser.isAdmin && r.added_by !== currentUser.name)return false;
+      if(!currentUser.isAdmin && r.added_by_id !== currentUser.id)return false;
     }
     const mc=!currentCat||r.category===currentCat;
     const mt=!currentTag||(r.tags||[]).includes(currentTag);
@@ -1241,7 +1253,7 @@ function updateTagsBar(){
   bar.innerHTML=tags.map(t=>`<button class="tag-filter-btn ${currentTag===t?'active':''}" onclick="setTag('${esc(t)}')">#${esc(t)}</button>`).join('');
 }
 
-function canEdit(r){ return currentUser&&(currentUser.isAdmin||!r.added_by||r.added_by===currentUser.name); }
+function canEdit(r){ return currentUser&&(currentUser.isAdmin||!r.added_by_id||r.added_by_id===currentUser.id); }
 
 function cardHTML(r,_q=''){
   const tags=(r.tags||[]).map(t=>`<span class="recipe-etag">#${esc(t)}</span>`).join('');
@@ -1468,11 +1480,11 @@ async function saveRecipe(){
       } catch(e){}
     }
   }
-  const payload={name,category:getSelectedCategory(),emoji:document.getElementById('fEmoji').value.trim()||null,time_minutes:parseInt(document.getElementById('fTime').value)||null,servings:parseInt(document.getElementById('fServ').value)||null,ingredients:ings,steps:document.getElementById('fSteps').value.trim()||null,note:document.getElementById('fNote').value.trim()||null,tags:formTags,added_by:currentUser.name,is_private:document.getElementById('fPrivate').checked,photo_url:photoUrl};
+  const payload={name,category:getSelectedCategory(),emoji:document.getElementById('fEmoji').value.trim()||null,time_minutes:parseInt(document.getElementById('fTime').value)||null,servings:parseInt(document.getElementById('fServ').value)||null,ingredients:ings,steps:document.getElementById('fSteps').value.trim()||null,note:document.getElementById('fNote').value.trim()||null,tags:formTags,added_by:currentUser.name,added_by_id:currentUser.id,is_private:document.getElementById('fPrivate').checked,photo_url:photoUrl};
   let error;
   if(editingId){
     const orig=recipes.find(r=>r.id===editingId);
-    if(orig&&orig.added_by&&orig.added_by!==currentUser.name)payload.added_by=orig.added_by;
+    if(orig&&orig.added_by_id&&orig.added_by_id!==currentUser.id){payload.added_by=orig.added_by;payload.added_by_id=orig.added_by_id;}
     ({error}=await sb.from('recipes').update(payload).eq('id',editingId));if(!error){const idx=recipes.findIndex(r=>r.id===editingId);if(idx>-1)recipes[idx]={...recipes[idx],...payload};}}
   else{payload.is_favorite=false;const {data,error:e}=await sb.from('recipes').insert(payload).select().single();error=e;if(!error&&data)recipes.unshift(data);}
   btn.disabled=false;btn.textContent='💾 Kaydet';
@@ -1539,7 +1551,7 @@ async function loadComments(recipeId) {
         <div style="font-size:13px;font-weight:700;color:var(--text);">${esc(c.member_name)} <span style="font-weight:400;color:var(--text3);font-size:11px;">${new Date(c.created_at).toLocaleString('tr-TR')}</span></div>
         <div style="font-size:13px;color:var(--text2);line-height:1.5;margin-top:2px;">${esc(c.text)}</div>
       </div>
-      ${(currentUser.isAdmin || currentUser.name === c.member_name) ? `<button onclick="deleteComment('${c.id}')" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:14px;padding:2px;">🗑</button>` : ''}
+      ${(currentUser.isAdmin || currentUser.id === c.member_id) ? `<button onclick="deleteComment('${c.id}')" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:14px;padding:2px;">🗑</button>` : ''}
     </div>`).join('');
 }
 
@@ -1547,7 +1559,7 @@ async function addComment() {
   const input = document.getElementById('commentInput');
   const text = input.value.trim();
   if (!text) return;
-  const { error } = await sb.from('comments').insert({ recipe_id: detailId, member_name: currentUser.name, text });
+  const { error } = await sb.from('comments').insert({ recipe_id: detailId, member_id: currentUser.id, member_name: currentUser.name, text });
   if (error) { toast('⚠️ Yorum eklenemedi'); return; }
   input.value = '';
   await loadComments(detailId);
