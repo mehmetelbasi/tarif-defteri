@@ -830,14 +830,17 @@ async function doLogin() {
 
   const hashedPass = await sha256(pass);
 
-  const { data, error } = await sb.from('members').select('id,name,is_admin,password').eq('id', selectedMemberId).single();
+  // Şifre kontrolünü veritabanı içinde yapan güvenli fonksiyonu çağır
+  const { data, error } = await sb.rpc('verify_member_login', { p_member_id: selectedMemberId, p_password_hash: hashedPass });
+  const result = data && data[0];
 
   btn.disabled = false; btn.textContent = 'Giriş Yap →';
 
-  if (error || !data) { showLoginError('Bir hata oluştu, tekrar deneyin.'); return; }
-  if (data.password !== hashedPass) { showLoginError('❌ Şifre hatalı, tekrar deneyin.'); document.getElementById('passInput').value=''; document.getElementById('passInput').focus(); return; }
+  if (error) { showLoginError('Bir hata oluştu, tekrar deneyin.'); return; }
+  if (!result) { showLoginError('❌ Şifre hatalı, tekrar deneyin.'); document.getElementById('passInput').value=''; document.getElementById('passInput').focus(); return; }
 
-  currentUser = { id: data.id, name: data.name, isAdmin: data.is_admin, exp: Date.now() + 24*60*60*1000 };
+  // Giriş başarılı — session kaydet (8 saatlik)
+  currentUser = { id: result.id, name: result.name, isAdmin: result.is_admin, exp: Date.now() + 24*60*60*1000 };
   localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
 
   document.getElementById('loginScreen').style.display = 'none';
@@ -1106,7 +1109,7 @@ async function permanentDelete(id) {
 }
 
 async function renderAdminMembers() {
-  const { data } = await sb.from('members').select('*').order('is_admin',{ascending:false}).order('name');
+  const { data } = await sb.from('members').select('id,name,is_admin').order('is_admin',{ascending:false}).order('name');
   const list = document.getElementById('adminMemberList');
   if (!data||!data.length) { list.innerHTML='<p style="color:var(--text3);font-size:13px;">Henüz üye yok.</p>'; return; }
   list.innerHTML = data.map(m=>`
