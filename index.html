@@ -1261,10 +1261,11 @@ async function fetchRecipes() {
     toast('⚠️ Veriler yüklenemedi');
     return;
   }
-  recipes = data || [];
-  localStorage.setItem('tarif_cache', JSON.stringify(recipes));
-  if (!localStorage.getItem(LAST_SEEN_KEY)) markAsSeen();
-  updateCounts(); updateTagsBar(); renderList();
+recipes = data || [];
+localStorage.setItem('tarif_cache', JSON.stringify(recipes));
+if (!localStorage.getItem(LAST_SEEN_KEY)) markAsSeen();
+await loadCommentCounts();
+updateCounts(); updateTagsBar(); renderList();
   checkNewRecipes();
 }
 
@@ -1358,6 +1359,7 @@ function cardHTML(r,_q=''){
         ${r.time_minutes?`<div class="meta-item"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline stroke-linecap="round" points="12 6 12 12 16 14"/></svg>${r.time_minutes} dk</div>`:''}
         ${r.servings?`<div class="meta-item"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>${r.servings} kişi</div>`:''}
         ${r.ingredients&&r.ingredients.length?`<div class="meta-item">${r.ingredients.length} malzeme</div>`:''}
+		${commentCounts[r.id]?`<div class="meta-item">💬 ${commentCounts[r.id]}</div>`:''}
         ${r.added_by?`<div class="added-by">👤 ${esc(r.added_by)}</div>`:''}
       </div>
       ${r.steps?`<div class="recipe-card-desc">${highlight(r.steps.split('\n').filter(Boolean)[0]||'',_q)}</div>`:''}
@@ -1617,7 +1619,14 @@ ${r.note?`<div class="section-title">İpucu</div><div class="detail-note">💡 $
       </div>
     </div><div style="height:20px;"></div>`;
   document.getElementById('detailOverlay').classList.add('open');
-  loadComments(id);
+  async function loadCommentCounts() {
+  const { data, error } = await sb.from('comments').select('recipe_id');
+  if (error) return;
+  const counts = {};
+  (data || []).forEach(c => { counts[c.recipe_id] = (counts[c.recipe_id] || 0) + 1; });
+  commentCounts = counts;
+}
+loadComments(id);
 }
 
 function closeDetail(){document.getElementById('detailOverlay').classList.remove('open');}
@@ -1646,6 +1655,8 @@ async function addComment() {
   if (error) { toast('⚠️ Yorum eklenemedi'); return; }
   input.value = '';
   await loadComments(detailId);
+  commentCounts[detailId] = (commentCounts[detailId] || 0) + 1;
+renderList();
 }
 
 async function deleteComment(id) {
@@ -1653,6 +1664,8 @@ async function deleteComment(id) {
   const { error } = await sb.from('comments').delete().eq('id', id);
   if (error) { toast('⚠️ Silinemedi'); return; }
   await loadComments(detailId);
+  commentCounts[detailId] = Math.max(0, (commentCounts[detailId] || 1) - 1);
+renderList();
 }
 function handleDetailOverlay(e){if(e.target===document.getElementById('detailOverlay'))closeDetail();}
 function editFromDetail(){closeDetail();setTimeout(()=>openEditModal(detailId),200);}
