@@ -1607,12 +1607,52 @@ function openDetail(id){
     <div class="detail-body">
       ${r.ingredients&&r.ingredients.length?`<div class="section-title">Malzemeler</div><div>${r.ingredients.map(i=>`<span class="ing-chip">✓ ${esc(i)}</span>`).join('')}</div>`:''}
       ${steps.length?`<div class="section-title">Yapılışı</div><ol class="steps-list">${steps.map((s,i)=>`<li class="step-item"><div class="step-num">${i+1}</div><div class="step-text">${esc(s.replace(/^\d+[\.\)]\s*/,''))}</div></li>`).join('')}</ol>`:''}
-      ${r.note?`<div class="section-title">İpucu</div><div class="detail-note">💡 ${esc(r.note)}</div>`:''}
+${r.note?`<div class="section-title">İpucu</div><div class="detail-note">💡 ${esc(r.note)}</div>`:''}
+      <div class="section-title">💬 Yorumlar</div>
+      <div id="commentsList"></div>
+      <div style="display:flex;gap:8px;margin-top:10px;">
+        <input class="form-input" id="commentInput" placeholder="Yorum yaz..." onkeydown="if(event.key==='Enter'){addComment()}" style="flex:1;" />
+        <button onclick="addComment()" style="background:var(--accent);color:#fff;border:none;border-radius:12px;padding:0 16px;font-weight:700;cursor:pointer;">Gönder</button>
+      </div>
     </div><div style="height:20px;"></div>`;
   document.getElementById('detailOverlay').classList.add('open');
+  loadComments(id);
 }
 
 function closeDetail(){document.getElementById('detailOverlay').classList.remove('open');}
+async function loadComments(recipeId) {
+  const list = document.getElementById('commentsList');
+  list.innerHTML = '<div style="font-size:13px;color:var(--text3);padding:8px 0;">⏳ Yükleniyor...</div>';
+  const { data, error } = await sb.from('comments').select('*').eq('recipe_id', recipeId).order('created_at', { ascending: true });
+  if (error) { list.innerHTML = '<div style="font-size:13px;color:var(--text3);">Yorumlar yüklenemedi.</div>'; return; }
+  if (!data.length) { list.innerHTML = '<div style="font-size:13px;color:var(--text3);padding:8px 0;">Henüz yorum yok. İlk yorumu sen yaz!</div>'; return; }
+  list.innerHTML = data.map(c => `
+    <div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);">
+      <div style="width:30px;height:30px;border-radius:50%;background:var(--tag-bg);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;">${esc(c.member_name[0].toUpperCase())}</div>
+      <div style="flex:1;">
+        <div style="font-size:13px;font-weight:700;color:var(--text);">${esc(c.member_name)} <span style="font-weight:400;color:var(--text3);font-size:11px;">${new Date(c.created_at).toLocaleString('tr-TR')}</span></div>
+        <div style="font-size:13px;color:var(--text2);line-height:1.5;margin-top:2px;">${esc(c.text)}</div>
+      </div>
+      ${(currentUser.isAdmin || currentUser.name === c.member_name) ? `<button onclick="deleteComment('${c.id}')" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:14px;padding:2px;">🗑</button>` : ''}
+    </div>`).join('');
+}
+
+async function addComment() {
+  const input = document.getElementById('commentInput');
+  const text = input.value.trim();
+  if (!text) return;
+  const { error } = await sb.from('comments').insert({ recipe_id: detailId, member_name: currentUser.name, text });
+  if (error) { toast('⚠️ Yorum eklenemedi'); return; }
+  input.value = '';
+  await loadComments(detailId);
+}
+
+async function deleteComment(id) {
+  if (!confirm('Yorumu silmek istediğinize emin misiniz?')) return;
+  const { error } = await sb.from('comments').delete().eq('id', id);
+  if (error) { toast('⚠️ Silinemedi'); return; }
+  await loadComments(detailId);
+}
 function handleDetailOverlay(e){if(e.target===document.getElementById('detailOverlay'))closeDetail();}
 function editFromDetail(){closeDetail();setTimeout(()=>openEditModal(detailId),200);}
 
