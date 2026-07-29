@@ -12,6 +12,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Nunito:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/dist/umd/supabase.js"></script>
+  <script>
+    try { if (localStorage.getItem('tarif_theme') === 'dark') document.documentElement.setAttribute('data-theme','dark'); } catch(e){}
+  </script>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -259,6 +262,7 @@
       <div class="profile-avatar" id="profileAvatar">👤</div>
       <div class="profile-name" id="profileName"></div>
       <div class="profile-sub" id="profileRole">Aile Tarif Defteri</div>
+      <button class="btn-action" id="themeToggleBtn" onclick="toggleTheme()">🌙 Karanlık Mod</button>
       <button class="btn-action purple" id="adminPanelBtn" onclick="closeProfile();openAdminPanel()" style="display:none;">👑 Yönetici Paneli</button>
       <button class="btn-action danger" onclick="logout()">🚪 Çıkış Yap</button>
     </div>
@@ -284,6 +288,8 @@
         <button onclick="backupJSON()" style="flex:1;padding:12px;background:var(--green-bg);color:var(--green);border:1.5px solid var(--green);border-radius:12px;font-family:Nunito,sans-serif;font-size:14px;font-weight:700;cursor:pointer;">⬇️ JSON İndir</button>
         <button onclick="backupCSV()" style="flex:1;padding:12px;background:var(--tag-bg);color:var(--tag-text);border:1.5px solid var(--tag-text);border-radius:12px;font-family:Nunito,sans-serif;font-size:14px;font-weight:700;cursor:pointer;">⬇️ CSV İndir</button>
       </div>
+      <div class="section-title" style="margin-top:24px;">Depo Bakımı</div>
+      <button onclick="cleanupOrphanedPhotos()" style="width:100%;padding:12px;background:var(--tag-bg);color:var(--tag-text);border:1.5px solid var(--tag-text);border-radius:12px;font-family:Nunito,sans-serif;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:24px;">🧹 Kullanılmayan Fotoğrafları Temizle</button>
       <div class="section-title" style="margin-top:24px;">Yedekten Geri Yükle</div>
       <div style="margin-bottom:8px;">
         <label for="restoreInput" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;border:1.5px dashed var(--border);border-radius:12px;cursor:pointer;color:var(--text3);font-size:13px;font-weight:600;text-transform:none;letter-spacing:0;margin-bottom:10px;">

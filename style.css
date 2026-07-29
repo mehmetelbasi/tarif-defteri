@@ -6,6 +6,16 @@
       --green: #2D7A4F; --green-bg: #E6F5EC;
       --radius: 16px; --shadow: 0 2px 16px rgba(232,93,38,0.08);
     }
+    [data-theme="dark"] {
+      --bg: #1A1410; --card: #241B15; --text: #F0E6DC; --text2: #C4AD98;
+      --text3: #8A7560; --accent: #FF8F5C; --border: #3D3128;
+      --tag-bg: #3D2818; --tag-text: #FFB088;
+      --green: #4ADE80; --green-bg: #16301F;
+      --shadow: 0 2px 16px rgba(0,0,0,0.35);
+    }
+    body, .modal, .card, #loadingScreen, #loginScreen { transition: background-color 0.2s, color 0.2s; }
+    [data-theme="dark"] .detail-hero { background: linear-gradient(135deg, #3D2818 0%, #2A1A10 100%); }
+    [data-theme="dark"] .login-error { background: #3A1E1E; border-color: #6B2E2E; color: #FF9E9E; }
     body { font-family: 'Nunito', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; overscroll-behavior: none; }
     #loadingScreen { position: fixed; inset: 0; z-index: 999; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; }
     .loading-logo { font-family: 'Playfair Display', serif; font-size: 32px; color: var(--accent); }

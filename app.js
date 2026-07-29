@@ -383,6 +383,7 @@ function showLogin() {
 function showApp() {
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('appShell').style.display = 'block';
+  updateThemeButton();
   const l = currentUser.name[0].toUpperCase();
   const av = document.getElementById('userAvatar');
   av.textContent = currentUser.isAdmin ? '👑' : l;
@@ -414,6 +415,26 @@ async function logout() {
     caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
   }
   toast('👋 Çıkış yapıldı');
+}
+
+// ── KARANLIK MOD ──
+function toggleTheme() {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  if (isDark) {
+    document.documentElement.removeAttribute('data-theme');
+    localStorage.setItem('tarif_theme', 'light');
+  } else {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    localStorage.setItem('tarif_theme', 'dark');
+  }
+  updateThemeButton();
+}
+
+function updateThemeButton() {
+  const btn = document.getElementById('themeToggleBtn');
+  if (!btn) return;
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  btn.textContent = isDark ? '☀️ Aydınlık Mod' : '🌙 Karanlık Mod';
 }
 
 function openProfile()  { document.getElementById('profileOverlay').classList.add('open'); }
@@ -568,6 +589,54 @@ async function backupCSV() {
   a.click();
   URL.revokeObjectURL(url);
   toast('✅ ' + data.length + ' tarif CSV olarak indirildi');
+}
+
+async function cleanupOrphanedPhotos() {
+  if (!confirm('Fotoğraf deposu taranacak. Devam edilsin mi?')) return;
+  const btn = event.target;
+  const originalText = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ Taranıyor...';
+
+  // 1) Depodaki tüm dosyaları listele (sayfalı)
+  let allFiles = [];
+  let offset = 0;
+  const pageSize = 100;
+  while (true) {
+    const { data, error } = await sb.storage.from('recipe-photos').list('', { limit: pageSize, offset, sortBy: { column: 'name', order: 'asc' } });
+    if (error) { toast('⚠️ Depo listelenemedi: ' + error.message); btn.disabled = false; btn.textContent = originalText; return; }
+    allFiles = allFiles.concat(data || []);
+    if (!data || data.length < pageSize) break;
+    offset += pageSize;
+  }
+
+  if (!allFiles.length) { toast('✅ Depo zaten boş'); btn.disabled = false; btn.textContent = originalText; return; }
+
+  // 2) Silinmiş olanlar dahil tüm tariflerde kullanılan fotoğraf dosya adlarını topla
+  const { data: allRecipes, error: recErr } = await sb.from('recipes').select('photo_url');
+  if (recErr) { toast('⚠️ Tarifler okunamadı'); btn.disabled = false; btn.textContent = originalText; return; }
+
+  const usedFiles = new Set();
+  (allRecipes || []).forEach(r => {
+    if (r.photo_url) {
+      const parts = r.photo_url.split('/recipe-photos/');
+      if (parts[1]) usedFiles.add(decodeURIComponent(parts[1]));
+    }
+  });
+
+  // 3) Hiçbir tarif tarafından kullanılmayan dosyaları bul
+  const orphans = allFiles.filter(f => !usedFiles.has(f.name)).map(f => f.name);
+
+  btn.disabled = false; btn.textContent = originalText;
+
+  if (!orphans.length) { toast('✅ Kullanılmayan fotoğraf yok, depo temiz!'); return; }
+  if (!confirm(orphans.length + ' kullanılmayan fotoğraf bulundu. Silinsin mi?')) return;
+
+  btn.disabled = true; btn.textContent = '⏳ Siliniyor...';
+  const { error: delErr } = await sb.storage.from('recipe-photos').remove(orphans);
+  btn.disabled = false; btn.textContent = originalText;
+
+  if (delErr) { toast('⚠️ Silme hatası: ' + delErr.message); return; }
+  toast('🧹 ' + orphans.length + ' kullanılmayan fotoğraf silindi');
 }
 
 async function renderTrash() {
