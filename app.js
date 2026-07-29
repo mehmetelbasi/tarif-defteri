@@ -21,6 +21,7 @@ const SESSION_KEY = 'tarif_session';
 let recipes=[], members=[], currentCat='', currentTag='', currentSort='new', currentPage=1;
 let editingId=null, detailId=null, currentUser=null, formTags=[], importList2=[], searchTimer=null;
 let commentCounts = {};
+let filterStateRestored = false;
 
 const LAST_SEEN_KEY = 'tarif_last_seen';
 
@@ -62,6 +63,79 @@ function showNewRecipes() {
 
 function markAsSeen() {
   localStorage.setItem(LAST_SEEN_KEY, new Date().toISOString());
+}
+
+// ── YENİ YORUM BİLDİRİMİ ──
+const COMMENT_LAST_SEEN_KEY = 'tarif_comment_last_seen';
+
+async function checkNewComments() {
+  const lastSeen = localStorage.getItem(COMMENT_LAST_SEEN_KEY);
+  const banner = document.getElementById('newCommentsBanner');
+  if (!banner) return;
+  if (!lastSeen) { markCommentsSeen(); return; }
+
+  const { count, error } = await sb.from('comments')
+    .select('id', { count: 'exact', head: true })
+    .gt('created_at', lastSeen)
+    .neq('member_id', currentUser?.id || '');
+  if (error) return;
+
+  if (count > 0) {
+    document.getElementById('newCommentsText').textContent = `💬 ${count} yeni yorum var`;
+    banner.style.display = 'block';
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+function markCommentsSeen() {
+  localStorage.setItem(COMMENT_LAST_SEEN_KEY, new Date().toISOString());
+}
+
+function showNewComments() {
+  markCommentsSeen();
+  document.getElementById('newCommentsBanner').style.display = 'none';
+  toast('💬 Yorumları görmek için bir tarif açın');
+}
+
+// ── ARAMA/FİLTRE HAFIZASI ──
+const FILTER_STATE_KEY = 'tarif_filter_state';
+
+function saveFilterState() {
+  localStorage.setItem(FILTER_STATE_KEY, JSON.stringify({
+    cat: currentCat, tag: currentTag, sort: currentSort,
+    search: document.getElementById('searchInput')?.value || ''
+  }));
+}
+
+function restoreFilterState() {
+  if (filterStateRestored) return;
+  filterStateRestored = true;
+  try {
+    const raw = localStorage.getItem(FILTER_STATE_KEY);
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    currentCat = s.cat || '';
+    currentTag = s.tag || '';
+    currentSort = s.sort || 'new';
+
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) searchInput.value = s.search || '';
+
+    document.querySelectorAll('.cat-btn').forEach(btn => {
+      const onclk = btn.getAttribute('onclick') || '';
+      const m = onclk.match(/'([^']*)'/);
+      const val = m ? m[1] : '';
+      btn.classList.toggle('active', val === currentCat);
+    });
+
+    const sortLabels = { new:'Yeni', alpha:'A-Z', alpha_desc:'Z-A', time:'Hızlı', fav:'Favori' };
+    const sortLabelEl = document.getElementById('sortLabel');
+    if (sortLabelEl) sortLabelEl.textContent = sortLabels[currentSort] || 'Yeni';
+    document.querySelectorAll('.sort-option').forEach(o => {
+      o.classList.toggle('active', o.dataset.val === currentSort);
+    });
+  } catch(e) {}
 }
 
 async function sha256(text) {
@@ -606,8 +680,10 @@ async function fetchRecipes() {
   localStorage.setItem('tarif_cache', JSON.stringify(recipes));
   if (!localStorage.getItem(LAST_SEEN_KEY)) markAsSeen();
   await loadCommentCounts();
+  restoreFilterState();
   updateCounts(); updateTagsBar(); renderList();
   checkNewRecipes();
+  checkNewComments();
 }
 
 function showScreen(name) {
@@ -627,13 +703,14 @@ function setSort(val,label,el){
   document.querySelectorAll('.sort-option').forEach(o=>o.classList.remove('active'));
   if(el)el.classList.add('active');
   document.getElementById('sortDropdown').style.display='none';
+  saveFilterState();
   renderList();
 }
 document.addEventListener('click',e=>{if(!e.target.closest('.sort-wrap'))document.getElementById('sortDropdown').style.display='none';});
 
-function onSearch(){clearTimeout(searchTimer);searchTimer=setTimeout(()=>{currentPage=1;renderList();},200);}
-function setCat(btn,cat){currentCat=cat;currentPage=1;document.querySelectorAll('.cat-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');renderList();}
-function setTag(tag){currentTag=currentTag===tag?'':tag;currentPage=1;updateTagsBar();renderList();}
+function onSearch(){clearTimeout(searchTimer);searchTimer=setTimeout(()=>{currentPage=1;saveFilterState();renderList();},200);}
+function setCat(btn,cat){currentCat=cat;currentPage=1;document.querySelectorAll('.cat-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');saveFilterState();renderList();}
+function setTag(tag){currentTag=currentTag===tag?'':tag;currentPage=1;updateTagsBar();saveFilterState();renderList();}
 
 function getFiltered(){
   const q=normalize(document.getElementById('searchInput')?.value||'');

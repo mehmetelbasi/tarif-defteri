@@ -61,11 +61,11 @@
       <div class="sort-wrap">
         <button class="sort-btn" onclick="toggleSort()">⇅ <span id="sortLabel">Yeni</span></button>
         <div class="sort-dropdown" id="sortDropdown">
-          <div class="sort-option active" onclick="setSort('new','Yeni',this)">🕐 En Yeni</div>
-          <div class="sort-option" onclick="setSort('alpha','A-Z',this)">🔤 A → Z</div>
-          <div class="sort-option" onclick="setSort('alpha_desc','Z-A',this)">🔤 Z → A</div>
-          <div class="sort-option" onclick="setSort('time','Hızlı',this)">⏱ En Hızlı</div>
-          <div class="sort-option" onclick="setSort('fav','Favori',this)">❤️ Favoriler</div>
+          <div class="sort-option active" data-val="new" onclick="setSort('new','Yeni',this)">🕐 En Yeni</div>
+          <div class="sort-option" data-val="alpha" onclick="setSort('alpha','A-Z',this)">🔤 A → Z</div>
+          <div class="sort-option" data-val="alpha_desc" onclick="setSort('alpha_desc','Z-A',this)">🔤 Z → A</div>
+          <div class="sort-option" data-val="time" onclick="setSort('time','Hızlı',this)">⏱ En Hızlı</div>
+          <div class="sort-option" data-val="fav" onclick="setSort('fav','Favori',this)">❤️ Favoriler</div>
         </div>
       </div>
     </div>
@@ -92,6 +92,12 @@
       <div style="display:flex;align-items:center;justify-content:space-between;">
         <span style="font-size:13px;font-weight:700;color:var(--green);" id="newRecipesText">🆕 Yeni tarifler eklendi</span>
         <span style="font-size:12px;color:var(--green);font-weight:600;">Göster →</span>
+      </div>
+    </div>
+    <div id="newCommentsBanner" style="display:none;margin:6px 16px 0;background:var(--tag-bg);border:1.5px solid var(--tag-text);border-radius:12px;padding:10px 14px;cursor:pointer;" onclick="showNewComments()">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <span style="font-size:13px;font-weight:700;color:var(--tag-text);" id="newCommentsText">💬 Yeni yorumlar var</span>
+        <span style="font-size:12px;color:var(--tag-text);font-weight:600;">Kapat →</span>
       </div>
     </div>
     <div class="results-bar">
