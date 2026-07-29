@@ -435,40 +435,16 @@ async function restoreAll() {
   if (!confirm('Emin misiniz? Bu işlem ' + restoreData.length + ' tarifi geri yükler, mevcut her şeyi siler.')) return;
 
   const btn = event.target;
-  btn.disabled = true; btn.textContent = '⏳ Siliniyor...';
+  btn.disabled = true; btn.textContent = '⏳ Geri yükleniyor...';
 
-  const { error: delErr } = await sb.from('recipes').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-  if (delErr) { toast('⚠️ Silme hatası: ' + delErr.message); btn.disabled = false; btn.textContent = '⚠️ Tümünü Yükle'; return; }
-
-  btn.textContent = '⏳ Yükleniyor...';
-
-  const chunkSize = 50;
-  let loaded = 0;
-  for (let i = 0; i < restoreData.length; i += chunkSize) {
-    const chunk = restoreData.slice(i, i + chunkSize).map(r => ({
-      id: r.id,
-      name: r.name,
-      category: r.category || 'Diğer',
-      emoji: r.emoji || null,
-      time_minutes: r.time_minutes || null,
-      servings: r.servings || null,
-      ingredients: r.ingredients || [],
-      steps: r.steps || null,
-      note: r.note || null,
-      tags: r.tags || [],
-      added_by: r.added_by || '',
-      is_favorite: r.is_favorite || false,
-      is_private: r.is_private || false,
-      photo_url: r.photo_url || null,
-      created_at: r.created_at || new Date().toISOString(),
-    }));
-    const { error } = await sb.from('recipes').insert(chunk);
-    if (error) { toast('⚠️ Yükleme hatası: ' + error.message); break; }
-    loaded += chunk.length;
-    btn.textContent = '⏳ ' + loaded + '/' + restoreData.length + ' yüklendi...';
-  }
+  // Silme + yükleme tek bir veritabanı işlemi (transaction) olarak yapılır:
+  // bağlantı kesilirse ya tamamı uygulanır ya da hiçbiri — ara/eksik durum oluşmaz.
+  const { data: loaded, error } = await sb.rpc('restore_all_recipes', { recipes_json: restoreData });
 
   btn.disabled = false; btn.textContent = '⚠️ Tümünü Yükle';
+
+  if (error) { toast('⚠️ Geri yükleme hatası: ' + error.message); return; }
+
   await fetchRecipes();
   document.getElementById('restorePreview').style.display = 'none';
   toast('✅ ' + loaded + ' tarif başarıyla geri yüklendi!');
