@@ -974,10 +974,10 @@ function openDetail(id){
 function closeDetail(){document.getElementById('detailOverlay').classList.remove('open');}
 
 async function loadCommentCounts() {
-  const { data, error } = await sb.from('comments').select('recipe_id');
+  const { data, error } = await sb.from('comment_counts').select('recipe_id,count');
   if (error) return;
   const counts = {};
-  (data || []).forEach(c => { counts[c.recipe_id] = (counts[c.recipe_id] || 0) + 1; });
+  (data || []).forEach(c => { counts[c.recipe_id] = c.count; });
   commentCounts = counts;
 }
 
