@@ -451,6 +451,7 @@ function closeAdminPanel() { document.getElementById('adminOverlay').classList.r
 function handleAdminOverlay(e) { if(e.target===document.getElementById('adminOverlay')) closeAdminPanel(); }
 
 let restoreData = [];
+let restoreComments = [];
 
 function handleRestoreFile(event) {
   const file = event.target.files[0];
@@ -460,17 +461,27 @@ function handleRestoreFile(event) {
   const reader = new FileReader();
   reader.onload = e => {
     try {
-      const data = JSON.parse(e.target.result);
-      if (!Array.isArray(data) || !data.length) {
+      const parsed = JSON.parse(e.target.result);
+      let recipesArr, commentsArr;
+      if (Array.isArray(parsed)) {
+        // Eski format: düz tarif listesi (yorum içermez)
+        recipesArr = parsed;
+        commentsArr = [];
+      } else if (parsed && Array.isArray(parsed.recipes)) {
+        recipesArr = parsed.recipes;
+        commentsArr = Array.isArray(parsed.comments) ? parsed.comments : [];
+      } else {
         toast('⚠️ Geçersiz yedek dosyası');
         return;
       }
-      restoreData = data;
+      if (!recipesArr.length) { toast('⚠️ Geçersiz yedek dosyası'); return; }
+      restoreData = recipesArr;
+      restoreComments = commentsArr;
       document.getElementById('restorePreview').style.display = 'block';
       document.getElementById('restoreInfo').innerHTML =
-        '📦 <strong>' + data.length + ' tarif</strong> bulundu.<br>' +
-        '<span style="font-size:12px;color:var(--text3);">Eksikleri Ekle: Sadece veritabanında olmayan tarifler eklenir.<br>' +
-        'Tümünü Yükle: Mevcut tüm tarifler silinir, yedek yüklenir.</span>';
+        '📦 <strong>' + recipesArr.length + ' tarif' + (commentsArr.length ? ', ' + commentsArr.length + ' yorum' : '') + '</strong> bulundu.<br>' +
+        '<span style="font-size:12px;color:var(--text3);">Eksikleri Ekle: Sadece veritabanında olmayan tarifler eklenir (yorumlar dahil edilmez).<br>' +
+        'Tümünü Yükle: Mevcut tüm tarifler ve yorumlar silinir, yedek yüklenir.</span>';
     } catch(e) {
       toast('⚠️ JSON dosyası okunamadı');
     }
@@ -527,15 +538,15 @@ async function restoreMissing() {
 
 async function restoreAll() {
   if (!restoreData.length) return;
-  if (!confirm('⚠️ DİKKAT! Mevcut tüm tarifler silinecek ve yedek yüklenecek. Geri alınamaz!')) return;
-  if (!confirm('Emin misiniz? Bu işlem ' + restoreData.length + ' tarifi geri yükler, mevcut her şeyi siler.')) return;
+  if (!confirm('⚠️ DİKKAT! Mevcut tüm tarifler ve yorumlar silinecek ve yedek yüklenecek. Geri alınamaz!')) return;
+  if (!confirm('Emin misiniz? Bu işlem ' + restoreData.length + ' tarifi' + (restoreComments.length ? ' ve ' + restoreComments.length + ' yorumu' : '') + ' geri yükler, mevcut her şeyi siler.')) return;
 
   const btn = event.target;
   btn.disabled = true; btn.textContent = '⏳ Geri yükleniyor...';
 
   // Silme + yükleme tek bir veritabanı işlemi (transaction) olarak yapılır:
   // bağlantı kesilirse ya tamamı uygulanır ya da hiçbiri — ara/eksik durum oluşmaz.
-  const { data: loaded, error } = await sb.rpc('restore_all_recipes', { recipes_json: restoreData });
+  const { data: result, error } = await sb.rpc('restore_all_data', { recipes_json: restoreData, comments_json: restoreComments });
 
   btn.disabled = false; btn.textContent = '⚠️ Tümünü Yükle';
 
@@ -543,15 +554,19 @@ async function restoreAll() {
 
   await fetchRecipes();
   document.getElementById('restorePreview').style.display = 'none';
-  toast('✅ ' + loaded + ' tarif başarıyla geri yüklendi!');
+  toast('✅ ' + result.recipes + ' tarif, ' + result.comments + ' yorum geri yüklendi!');
 }
 
 async function backupJSON() {
   toast('⏳ Yedek hazırlanıyor...');
-  const { data, error } = await sb.from('recipes').select('*').is('deleted_at', null).order('created_at', { ascending: false });
-  if (error) { toast('⚠️ Yedek alınamadı'); return; }
+  const { data: recipesData, error: recErr } = await sb.from('recipes').select('*').is('deleted_at', null).order('created_at', { ascending: false });
+  if (recErr) { toast('⚠️ Yedek alınamadı'); return; }
 
-  const json = JSON.stringify(data, null, 2);
+  const { data: commentsData, error: comErr } = await sb.from('comments').select('*').order('created_at', { ascending: true });
+  if (comErr) { toast('⚠️ Yorumlar okunamadı'); return; }
+
+  const backup = { version: 2, recipes: recipesData, comments: commentsData || [] };
+  const json = JSON.stringify(backup, null, 2);
   const blob = new Blob([json], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -560,7 +575,7 @@ async function backupJSON() {
   a.download = `tarif-defteri-yedek-${tarih}.json`;
   a.click();
   URL.revokeObjectURL(url);
-  toast(`✅ ${data.length} tarif JSON olarak indirildi`);
+  toast(`✅ ${recipesData.length} tarif + ${(commentsData||[]).length} yorum JSON olarak indirildi`);
 }
 
 async function backupCSV() {
