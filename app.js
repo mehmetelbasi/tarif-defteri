@@ -5,7 +5,8 @@ const sb = createClient(SB_URL, SB_KEY);
 
 // Üye adından, Supabase Auth için sahte (gerçek e-posta olmayan) bir kimlik üretir
 function memberEmail(name) {
-  return normalize(name).replace(/\s+/g,'.') + '@aile.local';
+  const clean = normalize(name).replace(/[^a-z0-9\s]/g, '').replace(/\s+/g,'.').replace(/^\.+|\.+$/g,'');
+  return clean + '@aile.local';
 }
 
 const catEmoji = {
