@@ -199,8 +199,8 @@ async function init() {
   try {
     const { data: { session } } = await sb.auth.getSession();
     if (session) {
-      const { data: profile } = await sb.from('profiles').select('id,name,is_admin').eq('id', session.user.id).single();
-      if (profile) {
+      const { data: profile } = await sb.from('profiles').select('id,name,is_admin,is_active').eq('id', session.user.id).single();
+      if (profile && profile.is_active !== false) {
         currentUser = { id: profile.id, name: profile.name, isAdmin: profile.is_admin };
         document.getElementById('loadingScreen').style.display = 'none';
         showApp();
@@ -218,7 +218,7 @@ async function init() {
         }
         return;
       } else {
-        // Profil silinmiş/bulunamıyor — hesabı sonlandır
+        // Profil silinmiş/devre dışı/bulunamıyor — hesabı sonlandır
         await sb.auth.signOut();
       }
     }
@@ -311,7 +311,7 @@ async function loadSharedRecipe(id) {
 }
 
 async function loadMembers() {
-  const { data, error } = await sb.from('profiles').select('id,name,is_admin').order('is_admin', { ascending: false }).order('name');
+  const { data, error } = await sb.from('profiles').select('id,name,is_admin').eq('is_active', true).order('is_admin', { ascending: false }).order('name');
   if (error) { members = []; return; }
   members = data || [];
   renderMemberList();
@@ -360,8 +360,8 @@ async function doLogin() {
 
   if (error || !data.user) { showLoginError('❌ Şifre hatalı, tekrar deneyin.'); document.getElementById('passInput').value=''; document.getElementById('passInput').focus(); return; }
 
-  const { data: profile } = await sb.from('profiles').select('id,name,is_admin').eq('id', data.user.id).single();
-  if (!profile) { showLoginError('⚠️ Bu hesap artık aktif değil.'); await sb.auth.signOut(); return; }
+  const { data: profile } = await sb.from('profiles').select('id,name,is_admin,is_active').eq('id', data.user.id).single();
+  if (!profile || profile.is_active === false) { showLoginError('⚠️ Bu hesap artık aktif değil.'); await sb.auth.signOut(); return; }
 
   currentUser = { id: profile.id, name: profile.name, isAdmin: profile.is_admin };
 
@@ -680,13 +680,15 @@ async function renderAdminMembers() {
   const list = document.getElementById('adminMemberList');
   if (!data||!data.length) { list.innerHTML='<p style="color:var(--text3);font-size:13px;">Henüz üye yok.</p>'; return; }
   list.innerHTML = data.map(m=>`
-    <div class="admin-member-item">
+    <div class="admin-member-item" style="${m.is_active===false?'opacity:0.55;':''}">
       <div class="admin-member-avatar ${m.is_admin?'admin':''}">${m.name[0].toUpperCase()}</div>
       <div style="flex:1">
-        <div class="admin-member-name">${esc(m.name)} ${m.is_admin?'<span class="admin-member-badge">👑</span>':''}</div>
+        <div class="admin-member-name">${esc(m.name)} ${m.is_admin?'<span class="admin-member-badge">👑</span>':''} ${m.is_active===false?'<span style="font-size:11px;color:var(--text3);">(devre dışı)</span>':''}</div>
         <div style="font-size:11px;color:var(--text3);">••••••••</div>
       </div>
-      ${!m.is_admin?`<button class="btn-del-member" onclick="deleteMember('${m.id}','${esc(m.name)}')">🗑</button>`:''}
+      ${m.is_active===false
+        ? (!m.is_admin?`<button class="btn-del-member" style="color:var(--green);" onclick="reactivateMember('${m.id}','${esc(m.name)}')">↩</button>`:'')
+        : (!m.is_admin?`<button class="btn-del-member" onclick="deleteMember('${m.id}','${esc(m.name)}')">🗑</button>`:'')}
     </div>`).join('');
 }
 
@@ -695,6 +697,21 @@ async function addMember() {
   const pass = document.getElementById('newMemberPass').value.trim();
   if (!name||!pass) { toast('⚠️ Ad ve şifre gereklidir'); return; }
   if (pass.length < 6) { toast('⚠️ Şifre en az 6 karakter olmalıdır'); return; }
+
+  // Bu isimde daha önce eklenip devre dışı bırakılmış bir üye var mı kontrol et
+  const { data: existing } = await sb.from('profiles').select('id,is_active').eq('name', name).maybeSingle();
+  if (existing) {
+    if (existing.is_active) { toast('⚠️ Bu isimde zaten aktif bir üye var'); return; }
+    if (!confirm(name+' daha önce eklenip devre dışı bırakılmış. Eski hesabı (eski şifresiyle) tekrar aktif etmek ister misiniz?')) return;
+    const { error } = await sb.from('profiles').update({ is_active: true }).eq('id', existing.id);
+    if (error) { toast('⚠️ '+error.message); return; }
+    document.getElementById('newMemberName').value='';
+    document.getElementById('newMemberPass').value='';
+    await renderAdminMembers();
+    await loadMembers();
+    toast('✅ '+name+' eski şifresiyle tekrar aktif edildi');
+    return;
+  }
 
   // Admin'in kendi oturumunu bozmadan yeni kullanıcı oluşturmak için geçici, oturum saklamayan bir istemci kullanıyoruz
   const tempClient = createClient(SB_URL, SB_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -711,9 +728,18 @@ async function addMember() {
   toast('✅ '+name+' eklendi');
 }
 
+async function reactivateMember(id, name) {
+  if (!confirm(name+' tekrar aktif edilsin mi?')) return;
+  const { error } = await sb.from('profiles').update({ is_active: true }).eq('id', id);
+  if (error) { toast('⚠️ Aktif edilemedi'); return; }
+  await renderAdminMembers();
+  await loadMembers();
+  toast('✅ '+name+' tekrar eklendi');
+}
+
 async function deleteMember(id, name) {
-  if (!confirm(name+' üyelikten çıkarılsın mı? (Hesabı devre dışı bırakılır, tekrar giriş yapamaz)')) return;
-  const { error } = await sb.from('profiles').delete().eq('id', id);
+  if (!confirm(name+' üyelikten çıkarılsın mı? (Hesap devre dışı bırakılır, istenirse daha sonra aynı şifreyle tekrar eklenebilir)')) return;
+  const { error } = await sb.from('profiles').update({ is_active: false }).eq('id', id);
   if (error) { toast('⚠️ Silinemedi'); return; }
   await renderAdminMembers();
   await loadMembers();
