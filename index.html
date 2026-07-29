@@ -229,6 +229,38 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="profileViewOverlay" onclick="handleProfileViewOverlay(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <div class="modal-title">Üye Profili</div>
+      <button class="btn-close" onclick="closeMemberProfile()"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><line stroke-linecap="round" x1="18" y1="6" x2="6" y2="18"/><line stroke-linecap="round" x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="profile-info" style="padding-bottom:8px;">
+      <div class="profile-avatar" id="profileViewAvatar">👤</div>
+      <div class="profile-name" id="profileViewName"></div>
+      <div class="profile-sub" id="profileViewRole"></div>
+    </div>
+    <div style="display:flex;justify-content:center;gap:28px;padding:0 20px 16px;">
+      <div style="text-align:center;">
+        <div style="font-family:'Playfair Display',serif;font-size:22px;font-weight:700;color:var(--accent);" id="profileViewRecipeCount">0</div>
+        <div style="font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;">Tarif</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-family:'Playfair Display',serif;font-size:22px;font-weight:700;color:var(--accent);" id="profileViewCommentCount">0</div>
+        <div style="font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;">Yorum</div>
+      </div>
+    </div>
+    <div class="detail-body" style="padding-top:0;">
+      <div class="section-title" style="margin-top:0;">Tarifleri</div>
+      <div class="recipe-list" id="profileViewRecipes" style="padding:0 0 8px;"></div>
+      <div class="section-title">Yorumları</div>
+      <div id="profileViewComments"></div>
+    </div>
+    <div style="height:20px;"></div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="detailOverlay" onclick="handleDetailOverlay(event)">
   <div class="modal">
     <div class="modal-handle"></div>

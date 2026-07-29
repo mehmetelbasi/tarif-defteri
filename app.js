@@ -820,6 +820,12 @@ function updateTagsBar(){
 
 function canEdit(r){ return currentUser&&(currentUser.isAdmin||!r.added_by_id||r.added_by_id===currentUser.id); }
 
+function addedByHTML(r){
+  if (!r.added_by) return '';
+  if (!r.added_by_id) return `<div class="added-by">👤 ${esc(r.added_by)}</div>`;
+  return `<div class="added-by" onclick="event.stopPropagation();openMemberProfile('${r.added_by_id}')" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px;">👤 ${esc(r.added_by)}</div>`;
+}
+
 function cardHTML(r,_q=''){
   const tags=(r.tags||[]).map(t=>`<span class="recipe-etag">#${esc(t)}</span>`).join('');
   return`<div class="recipe-card" onclick="openDetail('${r.id}')">
@@ -841,7 +847,7 @@ function cardHTML(r,_q=''){
         ${r.servings?`<div class="meta-item"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>${r.servings} kişi</div>`:''}
         ${r.ingredients&&r.ingredients.length?`<div class="meta-item">${r.ingredients.length} malzeme</div>`:''}
         ${commentCounts[r.id]?`<div class="meta-item">💬 ${commentCounts[r.id]}</div>`:''}
-        ${r.added_by?`<div class="added-by">👤 ${esc(r.added_by)}</div>`:''}
+        ${addedByHTML(r)}
       </div>
       ${r.steps?`<div class="recipe-card-desc">${highlight(r.steps.split('\n').filter(Boolean)[0]||'',_q)}</div>`:''}
       <div class="recipe-card-footer"><span class="recipe-tag">${esc(r.category)}</span>${tags}</div>
@@ -1071,7 +1077,7 @@ function openDetail(id){
       <div class="detail-emoji">${r.emoji||catEmoji[r.category]||'🍴'}</div>
       <div class="detail-title">${esc(r.name)} ${r.is_private?'🔒':''}</div>
       <div class="detail-tags"><span class="recipe-tag">${esc(r.category)}</span>${tags}</div>
-      ${r.added_by?`<div class="detail-added-by">👤 ${esc(r.added_by)} tarafından eklendi</div>`:''}
+      ${r.added_by?(r.added_by_id?`<div class="detail-added-by" onclick="openMemberProfile('${r.added_by_id}')" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px;">👤 ${esc(r.added_by)} tarafından eklendi</div>`:`<div class="detail-added-by">👤 ${esc(r.added_by)} tarafından eklendi</div>`):''}
       <div class="detail-meta-row">
         ${r.time_minutes?`<div class="detail-meta-item"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline stroke-linecap="round" points="12 6 12 12 16 14"/></svg><span class="val">${r.time_minutes} dk</span><span class="lbl">Süre</span></div>`:''}
         ${r.servings?`<div class="detail-meta-item"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg><span class="val">${r.servings} kişi</span><span class="lbl">Porsiyon</span></div>`:''}
@@ -1094,6 +1100,52 @@ function openDetail(id){
 }
 
 function closeDetail(){document.getElementById('detailOverlay').classList.remove('open');}
+
+// ── ÜYE PROFİLİ ──
+function getMemberById(id){ return members.find(m => m.id === id); }
+
+async function openMemberProfile(id){
+  if (!id) return;
+  const member = getMemberById(id) || { name: 'Üye', is_admin: false };
+
+  document.getElementById('profileViewAvatar').textContent = member.is_admin ? '👑' : (member.name ? member.name[0].toUpperCase() : '👤');
+  document.getElementById('profileViewAvatar').className = 'profile-avatar' + (member.is_admin ? ' admin' : '');
+  document.getElementById('profileViewName').textContent = member.name;
+  document.getElementById('profileViewRole').textContent = member.is_admin ? '👑 Yönetici' : 'Aile üyesi';
+
+  // Sadece şu an bizim görebildiğimiz tarifler (gizlilik kuralları zaten recipes dizisine yansımış durumda)
+  const memberRecipes = recipes.filter(r => r.added_by_id === id);
+  document.getElementById('profileViewRecipeCount').textContent = memberRecipes.length;
+  document.getElementById('profileViewRecipes').innerHTML = memberRecipes.length
+    ? memberRecipes.map(r => cardHTML(r,'')).join('')
+    : '<div class="empty-state" style="padding:30px 20px;"><div class="big">🍳</div><p>Henüz tarif eklenmemiş.</p></div>';
+
+  document.getElementById('profileViewOverlay').classList.add('open');
+
+  const commentsEl = document.getElementById('profileViewComments');
+  commentsEl.innerHTML = '<div style="font-size:13px;color:var(--text3);padding:12px 0;">⏳ Yükleniyor...</div>';
+  document.getElementById('profileViewCommentCount').textContent = '…';
+
+  const { data, count, error } = await sb.from('comments').select('*', { count: 'exact' }).eq('member_id', id).order('created_at', { ascending: false }).limit(50);
+  if (error) { commentsEl.innerHTML = '<div style="font-size:13px;color:var(--text3);">Yorumlar yüklenemedi.</div>'; return; }
+
+  // Erişemediğimiz (gizli) bir tarife yapılmış yorumlar burada gösterilmez
+  const rows = (data || []).map(c => {
+    const r = recipes.find(x => x.id === c.recipe_id);
+    if (!r) return '';
+    return `<div style="padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer;" onclick="closeMemberProfile();setTimeout(()=>openDetail('${c.recipe_id}'),200)">
+      <div style="font-size:12px;color:var(--accent);font-weight:700;margin-bottom:3px;">${esc(r.name)}</div>
+      <div style="font-size:13px;color:var(--text2);line-height:1.5;">${esc(c.text)}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:3px;">${new Date(c.created_at).toLocaleString('tr-TR')}</div>
+    </div>`;
+  }).filter(Boolean);
+
+  document.getElementById('profileViewCommentCount').textContent = rows.length;
+  commentsEl.innerHTML = rows.length ? rows.join('') : '<div style="font-size:13px;color:var(--text3);padding:12px 0;">Henüz yorum yapılmamış.</div>';
+}
+
+function closeMemberProfile(){ document.getElementById('profileViewOverlay').classList.remove('open'); }
+function handleProfileViewOverlay(e){ if(e.target===document.getElementById('profileViewOverlay')) closeMemberProfile(); }
 
 async function loadCommentCounts() {
   const { data, error } = await sb.from('comment_counts').select('recipe_id,count');
